@@ -1046,6 +1046,9 @@
 			"title": "Rip",
 			"owner": "ravinggenius"
 		},
+		"rql": {
+			"title": "RQL (RavenDB)"
+		},
 		"roboconf": {
 			"title": "Roboconf",
 			"owner": "Golmote"
