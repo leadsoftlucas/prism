@@ -1,4 +1,5 @@
 import { extend } from '../../shared.js';
+import { isInnerSpec } from '../tokenize/embed.js';
 import { grammarPatch } from '../../util/grammar-patch.js';
 import { deepClone, defineLazyProperty } from '../../util/objects.js';
 import List from './list.js';
@@ -9,6 +10,14 @@ export default class Language extends EventTarget {
 
 	/** @type {LanguageRegistry} */
 	registry;
+
+	/**
+	 * The id of this language. For derived meta-language instances this is the
+	 * compound id (e.g. `diff:css`), otherwise it is the id of the definition.
+	 *
+	 * @type {string}
+	 */
+	id;
 
 	/** @type {List<Language | LanguageProto>} */
 	require = new List();
@@ -22,20 +31,35 @@ export default class Language extends EventTarget {
 	readyState = 0;
 
 	/**
+	 * The inner language of this meta-language instance, `null` if there is none.
+	 * `undefined` means it has not been resolved yet.
+	 *
+	 * @type {Language | null | undefined}
+	 */
+	#inner;
+
+	/**
 	 *
 	 * @param {LanguageProto} def
 	 * @param {LanguageRegistry} registry
+	 * @param {LanguageOptions} [options]
 	 */
-	constructor (def, registry) {
+	constructor (def, registry, options = {}) {
 		super();
 		this.def = def;
 		this.registry = registry;
+		this.id = options.id ?? def.id;
+		this.#inner = options.inner;
 
 		if (this.def.base) {
 			this.require.add(this.def.base);
 		}
 		if (this.def.require) {
 			this.require.addAll(/** @type {LanguageProto | LanguageProto[]} */ (this.def.require));
+		}
+		if (this.def.inner) {
+			// The default inner language is a hard dependency, just like `base`
+			this.registry.add(this.def.inner);
 		}
 
 		if (this.def.optional) {
@@ -63,7 +87,8 @@ export default class Language extends EventTarget {
 					return language.resolvedGrammar;
 				}
 				else {
-					return this.registry.getLanguage(def.id).resolvedGrammar;
+					return /** @type {Language} */ (this.registry.getLanguage(def.id))
+						.resolvedGrammar;
 				}
 			});
 		}
@@ -74,7 +99,7 @@ export default class Language extends EventTarget {
 				this.languages,
 				id,
 				() => {
-					return this.registry.getLanguage(id).resolvedGrammar;
+					return /** @type {Language} */ (this.registry.getLanguage(id)).resolvedGrammar;
 				},
 				this.registry.peek(id) ?? this.registry.whenDefined(id)
 			);
@@ -82,10 +107,6 @@ export default class Language extends EventTarget {
 	}
 
 	resolve () {}
-
-	get id () {
-		return this.def.id;
-	}
 
 	get alias () {
 		if (!this.def.alias) {
@@ -115,6 +136,26 @@ export default class Language extends EventTarget {
 	}
 
 	/**
+	 * The inner language this instance embeds or produces, or `null` if there is none.
+	 *
+	 * Only meta-languages (definitions with an `inner` key) can have an inner language.
+	 * Unless one was explicitly provided (e.g. for `diff:css`), the default inner language
+	 * declared by the definition is used.
+	 *
+	 * @returns {Language | null}
+	 */
+	get inner () {
+		let inner = this.#inner;
+		if (inner === undefined) {
+			const def = this.def.inner;
+			inner = def ? this.registry.getLanguage(def) : null;
+			this.#inner = inner;
+		}
+
+		return /** @type {Language | null} */ (inner);
+	}
+
+	/**
 	 * @returns {Grammar}
 	 */
 	get grammar () {
@@ -123,6 +164,7 @@ export default class Language extends EventTarget {
 
 		let { grammar } = def;
 		const base = this.base;
+		const inner = this.inner;
 
 		if (typeof grammar === 'function') {
 			const options = {
@@ -166,6 +208,20 @@ export default class Language extends EventTarget {
 			grammar = deepClone(grammar);
 		}
 
+		if (inner) {
+			// The inner language of this instance goes wherever the grammar's `$inner` says;
+			// by default, everything that is not a token of this grammar is the inner language.
+			const language = () => inner.resolvedGrammar;
+			const spec = (/** @type {Grammar} */ (grammar)).$inner;
+
+			if (spec === undefined) {
+				grammar = { ...grammar, $inner: language };
+			}
+			else if (isInnerSpec(spec) && spec.language === undefined) {
+				grammar = { ...grammar, $inner: { ...spec, language } };
+			}
+		}
+
 		// This will replace the getter with a writable property
 		// @ts-ignore
 		return (this.grammar = grammar);
@@ -194,3 +250,10 @@ export default class Language extends EventTarget {
 }
 
 /** @import { LanguageGrammars, LanguageProto, LanguageRegistry, Grammar } from '../../types.d.ts' */
+
+/**
+ * @typedef {object} LanguageOptions
+ * @property {string} [id] The id of the language instance. Defaults to the id of the definition.
+ * @property {Language | null} [inner] The inner language. `null` means none. If omitted, the
+ * default inner language of the definition is used.
+ */
