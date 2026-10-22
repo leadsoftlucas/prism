@@ -11,7 +11,6 @@ tests/
 *.html
 *.svg
 composer.json
-dangerfile.js
 .editorconfig
 .gitattributes
 .travis.yml
@@ -27,6 +26,3 @@ SECURITY.md
 tsconfig.json
 scripts/
 _headers
-
-# Build telemetry
-dist/file-sizes.json

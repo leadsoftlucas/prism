@@ -324,6 +324,21 @@ const cjsExportPlugin = {
 };
 
 /**
+ * Compiles `import.meta.url` to `undefined` in the CJS build.
+ * Rollup's CJS output for it calls `require('u' + 'rl')` (Node's `url` module),
+ * which webpack, Rspack, esbuild and Parcel cannot resolve when they bundle for the browser.
+ * Code that reads `import.meta.url` must handle `undefined`, as it must in an esbuild IIFE bundle.
+ *
+ * @type {Plugin}
+ */
+const cjsImportMetaPlugin = {
+	name: 'cjs-import-meta',
+	resolveImportMeta (property) {
+		return property === 'url' ? 'undefined' : null;
+	},
+};
+
+/**
  * @param {MagicString} s
  * @returns {{ code: string; map: SourceMapInput }}
  */
@@ -346,7 +361,9 @@ const terserOptions = {
 		unsafe_regexp: true,
 	},
 	format: {
-		comments: false,
+		// Bundlers read these on `import()` calls that load components at runtime.
+		// Without them, webpack and Rspack bundle every file in `dist/`, and Turbopack fails to build.
+		comments: /webpackIgnore|@vite-ignore/,
 	},
 	keep_classnames: true,
 };
@@ -439,7 +456,12 @@ async function buildJS () {
 		cjs: {
 			rollupOptions: {
 				...defaultRollupOptions,
-				plugins: [...defaultRollupOptions.plugins, commonjs(), cjsExportPlugin],
+				plugins: [
+					...defaultRollupOptions.plugins,
+					commonjs(),
+					cjsExportPlugin,
+					cjsImportMetaPlugin,
+				],
 			},
 			outputOptions: {
 				...defaultOutputOptions,
@@ -488,74 +510,10 @@ async function buildJS () {
 	}
 }
 
-// Helper to get file size in bytes, or 0 if not found
-/**
- * @param {string} filePath
- */
-const getFileSize = async filePath => {
-	try {
-		const stat = await fs.promises.stat(filePath);
-		return stat.size;
-	}
-	catch {
-		return 0;
-	}
-};
-
-/**
- * @typedef {object} FileSizes
- * @property {number} [css]
- * @property {number} [js]
- */
-
-async function calculateFileSizes () {
-	const ret = {
-		core: {},
-		themes: {},
-		languages: {},
-		plugins: {},
-	};
-
-	ret.core.js = await getFileSize(path.join(DIST_DIR, 'index.js'));
-
-	for (const category of ['themes', 'languages', 'plugins']) {
-		let ids = themeIds;
-		if (category === 'languages') {
-			ids = languageIds;
-		}
-		else if (category === 'plugins') {
-			ids = pluginIds;
-		}
-
-		for (const id of ids) {
-			ret[category][id] = {};
-
-			for (const ext of ['js', 'css']) {
-				if (
-					(ext === 'css' &&
-						(category === 'languages' || components[category][id].noCSS)) ||
-					(category === 'themes' && ext === 'js')
-				) {
-					continue;
-				}
-
-				const filePath = path.join(DIST_DIR, category, id);
-				ret[category][id][ext] = await getFileSize(`${filePath}.${ext}`);
-			}
-		}
-	}
-
-	await fs.promises.writeFile(
-		path.join(DIST_DIR, 'file-sizes.json'),
-		JSON.stringify(ret, null, '\t')
-	);
-}
-
 runTask(
 	series(
 		clean,
 		parallel(buildTypes, buildJS, series(treeviewIconFont, minifyCSS)),
-		copyComponentsJson,
-		calculateFileSizes
+		copyComponentsJson
 	)
 );
