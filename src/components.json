@@ -1046,9 +1046,6 @@
 			"title": "Rip",
 			"owner": "ravinggenius"
 		},
-		"rql": {
-			"title": "RQL (RavenDB)"
-		},
 		"roboconf": {
 			"title": "Roboconf",
 			"owner": "Golmote"
@@ -1056,6 +1053,9 @@
 		"robotframework": {
 			"title": "Robot Framework",
 			"owner": "RunDevelopment"
+		},
+		"rql": {
+			"title": "RQL (RavenDB)"
 		},
 		"ruby": {
 			"title": "Ruby",
